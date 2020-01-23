@@ -8,13 +8,13 @@ Demonstrates direct interoperation with C and C-like Rust usage.
 
 # Usage
 
-Execute with cargo: `cargo run -- <colour> <width> <height>`
+Execute with cargo: `cargo run -- <colour> <width> <height> <scale>`
 
-Execute after build: `fbsnake <colour> <width> <height>`
+Execute after build: `fbsnake <colour> <width> <height> <scale>`
 
-Where `colour` is the hex `RRGGBB` and `width`/`height` are the decimal canvas size in pixels.
+Where `colour` is the hex `RRGGBB` and `width`/`height` are the decimal canvas size in pixels. `scale` is the integer scaling for the whole canvas.
 
-`width`/`height` must be smaller than or equal to the framebuffer size (probably your screen dimensions).
+`scale` * `width`/`height` must be smaller than or equal to the framebuffer size (probably your screen dimensions).
 
 # License
 

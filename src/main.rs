@@ -131,11 +131,12 @@ fn main() { std::process::exit({
     let name = args.next().unwrap_or_else(|| "fbsnake".to_owned());
     let error = format!("Usage: '{} RRGGBB width height'", &name);
     let colour = u32::from_str_radix(&args.next().expect(&error), 16).expect("Invalid colour: use form 'RRGGBB'");
-    let width = usize::from_str_radix(&args.next().expect(&error), 10).expect("Invalid width: must be a decimal number");
-    let height = usize::from_str_radix(&args.next().expect(&error), 10).expect("Invalid height: must be a decimal number");
+    let width = usize::from_str_radix(&args.next().expect(&error), 10).expect("Invalid width: must be a decimal integer");
+    let height = usize::from_str_radix(&args.next().expect(&error), 10).expect("Invalid height: must be a decimal integer");
+    let scale = usize::from_str_radix(&args.next().expect(&error), 10).expect("Invalid scale: must be a decimal integer");
 
-    assert!(width < info.xres as usize, "'width' cannot be bigger than framebuffer width");
-    assert!(height < info.yres as usize, "'height' cannot be bigger than framebuffer height");
+    assert!(width *  scale < info.xres as usize, "'width' * 'scale' cannot be bigger than framebuffer width");
+    assert!(height * scale < info.yres as usize, "'height' * 'scale' cannot be bigger than framebuffer height");
 
     #[derive(Debug, PartialEq, Copy, Clone)]
     enum Direction {
@@ -169,7 +170,11 @@ fn main() { std::process::exit({
     let mut dir = Right; 
 
     let mut set_xy = |x: isize, y: isize, colour: u32| {
-        buffer[x as usize + y as usize * info.xres as usize] = colour;
+        for x_scaled in 0..scale {
+            for y_scaled in 0..scale {
+                buffer[scale * x as usize + ((scale * y as usize + y_scaled) * info.xres as usize) + x_scaled] = colour;
+            }
+        }
     };
 
     // Clear play area
@@ -220,7 +225,7 @@ fn main() { std::process::exit({
         set_xy(pos.0, pos.1, colour);
         //println!("Set {:?}", pos);
 
-        std::thread::sleep(std::time::Duration::from_millis(5));
+        std::thread::sleep(std::time::Duration::from_millis(50));
     }
 
     0
