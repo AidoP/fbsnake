@@ -35,7 +35,7 @@ extern "C" {
 
     pub fn open(__file: *const u8, __oflag: i32, ...) -> i32;
     
-    pub fn mmap(__addr: *const void, __len: usize, __prot: i32, __flags: i32, __fd: i32, __offset: i64) -> *mut void;
+    pub fn mmap(__addr: *const void, __len: usize, __prot: i32, __flags: i32, __fd: i32, __offset: isize) -> *mut void;
 
     pub fn tcgetattr(__fd: i32, __termios_p: *const termios) -> i32;
     pub fn tcsetattr(__fd: i32, __optional_actions: i32, __termios_p: *const termios) -> i32;

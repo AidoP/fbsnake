@@ -8,6 +8,8 @@ Demonstrates direct interoperation with C and C-like Rust usage.
 
 # Usage
 
+To open `/dev/fb0` you must be in the `video` group.
+
 Execute with cargo: `cargo run -- <colour> <width> <height> <scale>`
 
 Execute after build: `fbsnake <colour> <width> <height> <scale>`
