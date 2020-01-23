@@ -27,6 +27,9 @@ const TCIFLUSH: i32 = 0;
 const TCOFLUSH: i32 = 1;
 const TCIOFLUSH:i32 = 2;
 
+// SIGNALS
+const SIGINT:   i32 = 2;
+
 use std::ffi::c_void as void;
 
 // System functions
@@ -40,6 +43,8 @@ extern "C" {
     pub fn tcgetattr(__fd: i32, __termios_p: *const termios) -> i32;
     pub fn tcsetattr(__fd: i32, __optional_actions: i32, __termios_p: *const termios) -> i32;
     pub fn tcflush(__fd: i32, __queue_selector: i32) -> i32;
+
+    pub fn signal(__sig: i32, __handler: fn(i32)) -> fn(i32);
 }
 
 #[repr(C)]
@@ -88,6 +93,7 @@ pub struct fb_var_screeninfo {
     reserved:       [u32; 4],
 }
 
+#[derive(Clone, Copy)]
 #[repr(C)]
 pub struct termios {
     c_iflag: u32,
@@ -102,19 +108,40 @@ pub struct termios {
     c_ospeed: u32
 }
 
+impl termios {
+    pub const fn none() -> Self {
+        Self {
+            c_iflag: 0,
+            c_oflag: 0,
+            c_cflag: 0,
+            c_lflag: 0,
+
+            c_line:  0,
+            c_cc:    [0; 32],
+
+            c_ispeed: 0,
+            c_ospeed: 0
+        }
+    }
+}
+
 #[cfg(not(target_os = "linux"))]
 compile_error!("fbsnake requires Linux as it utilises Linux-only features.");
 
 #[cfg(target_os = "linux")]
-fn main() { std::process::exit({
+fn main() { 
     // Disable terminal output
     let mut termios: termios = unsafe { std::mem::zeroed() };
     assert!(0 == unsafe { tcgetattr(0, &termios as *const termios) }, "Unable to get terminal info");
+
+    // Save terminal state
+    unsafe { termios_prev = termios.clone() };
+
     termios.c_lflag &= !(TC_ECHO | TC_ICANON);
     assert!(0 == unsafe { tcsetattr(0, TCSANOW, &termios as *const termios) }, "Unable to configure terminal");
 
     let fb = unsafe { open("/dev/fb0\0".as_ptr(), O_RDWR) };
-    assert!(fb > 0, "Unable to open framebuffer");
+    assert!(fb > 0, "Unable to open framebuffer; Are you in the 'video' group?");
 
     let info: fb_var_screeninfo = unsafe { std::mem::zeroed() };
     assert!(0 == unsafe { ioctl(fb, FBIOGET_VSCREENINFO, &info) }, "Unable to get framebuffer info");
@@ -127,6 +154,27 @@ fn main() { std::process::exit({
         std::slice::from_raw_parts_mut(buffer, len)
     };
 
+    termios.c_lflag &= !(TC_ECHO | TC_ICANON);
+    assert!(0 == unsafe { tcsetattr(0, TCSANOW, &termios as *const termios) }, "Unable to configure terminal");
+    
+    // Restore terminal state
+    unsafe { signal(SIGINT, restore) };
+
+    execute(buffer, info.xres as usize, info.yres as usize);
+}
+
+// Not really any way to get around this. Probably the least unsafe thing here
+static mut termios_prev: termios = termios::none();
+
+fn restore(signal: i32) {
+    assert!(0 == unsafe { tcsetattr(0, TCSANOW, &termios_prev as *const termios) }, "Unable to restore terminal");
+
+    std::process::exit(0);
+}
+
+// TODO: Remove the possibility of panicing here so terminal state can be restored
+#[cfg(target_os = "linux")]
+fn execute(buffer: &mut [u32], xres: usize, yres: usize) {
     let mut args = std::env::args();
     let name = args.next().unwrap_or_else(|| "fbsnake".to_owned());
     let error = format!("Usage: '{} RRGGBB width height'", &name);
@@ -135,8 +183,8 @@ fn main() { std::process::exit({
     let height = usize::from_str_radix(&args.next().expect(&error), 10).expect("Invalid height: must be a decimal integer");
     let scale = usize::from_str_radix(&args.next().expect(&error), 10).expect("Invalid scale: must be a decimal integer");
 
-    assert!(width *  scale <= info.xres as usize, "'width' * 'scale' cannot be bigger than framebuffer width");
-    assert!(height * scale <= info.yres as usize, "'height' * 'scale' cannot be bigger than framebuffer height");
+    if !(width * scale <= xres) { eprintln!("'width' * 'scale' cannot be bigger than framebuffer width"); return };
+    if !(height * scale <= yres) { eprintln!("'height' * 'scale' cannot be bigger than framebuffer height"); return };
 
     #[derive(Debug, PartialEq, Copy, Clone)]
     enum Direction {
@@ -172,7 +220,7 @@ fn main() { std::process::exit({
     let mut set_xy = |x: isize, y: isize, colour: u32| {
         for x_scaled in 0..scale {
             for y_scaled in 0..scale {
-                buffer[scale * x as usize + ((scale * y as usize + y_scaled) * info.xres as usize) + x_scaled] = colour;
+                buffer[scale * x as usize + ((scale * y as usize + y_scaled) * xres as usize) + x_scaled] = colour;
             }
         }
     };
@@ -198,7 +246,7 @@ fn main() { std::process::exit({
     loop {
         let input = input.try_recv().unwrap_or_else(|_| [0u8; 3]);
         
-        if input[0] == b'\x1B' && input[1] == b'\0' { return };
+        if input[0] == b'\x1B' && input[1] == b'\0' { break };
     
         if input.len() == 3 {
             dir = if !(input[0] == b'\x1B' && input[1] == b'[' ) { dir } else {
@@ -223,10 +271,7 @@ fn main() { std::process::exit({
         if pos.1 < 0 { pos.1 = height as isize - 1 };
 
         set_xy(pos.0, pos.1, colour);
-        //println!("Set {:?}", pos);
 
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
-
-    0
-})}
+}
