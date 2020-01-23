@@ -137,7 +137,7 @@ fn main() { std::process::exit({
     assert!(width < info.xres as usize, "'width' cannot be bigger than framebuffer width");
     assert!(height < info.yres as usize, "'height' cannot be bigger than framebuffer height");
 
-    #[derive(Debug)]
+    #[derive(Debug, PartialEq, Copy, Clone)]
     enum Direction {
         Left,
         Right,
@@ -152,6 +152,15 @@ fn main() { std::process::exit({
                 Up => pos.1 -= 1,
                 Down => pos.1 += 1
             };
+        }
+
+        fn opposite(&self) -> Self {
+            match self {
+                Left    => Right,
+                Right   => Left,
+                Up      => Down,
+                Down    => Up
+            }
         }
     }
     use Direction::*;
@@ -180,23 +189,23 @@ fn main() { std::process::exit({
         }
     });
 
-    let zero_input = [0u8; 3];
-    
     // Game loop
     loop {
-        let input = input.try_recv().unwrap_or_else(|_| zero_input);
+        let input = input.try_recv().unwrap_or_else(|_| [0u8; 3]);
         
         if input[0] == b'\x1B' && input[1] == b'\0' { return };
     
         if input.len() == 3 {
             dir = if !(input[0] == b'\x1B' && input[1] == b'[' ) { dir } else {
-                match input[2] {
+                let newdir = match input[2] {
                     b'A' => Up,
                     b'B' => Down,
                     b'C' => Right,
                     b'D' => Left,
                     _    => dir
-                }
+                };
+
+                if newdir == dir.opposite() { dir } else { newdir }
             };
         }
 
