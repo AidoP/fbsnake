@@ -135,8 +135,8 @@ fn main() { std::process::exit({
     let height = usize::from_str_radix(&args.next().expect(&error), 10).expect("Invalid height: must be a decimal integer");
     let scale = usize::from_str_radix(&args.next().expect(&error), 10).expect("Invalid scale: must be a decimal integer");
 
-    assert!(width *  scale < info.xres as usize, "'width' * 'scale' cannot be bigger than framebuffer width");
-    assert!(height * scale < info.yres as usize, "'height' * 'scale' cannot be bigger than framebuffer height");
+    assert!(width *  scale <= info.xres as usize, "'width' * 'scale' cannot be bigger than framebuffer width");
+    assert!(height * scale <= info.yres as usize, "'height' * 'scale' cannot be bigger than framebuffer height");
 
     #[derive(Debug, PartialEq, Copy, Clone)]
     enum Direction {
@@ -217,10 +217,10 @@ fn main() { std::process::exit({
         dir.step(&mut pos);
 
         // Clamp position, teleporting to other end if oob
-        if pos.0 > width as isize { pos.0 = 0 };
-        if pos.0 < 0 { pos.0 = width as isize };
-        if pos.1 > height as isize { pos.1 = 0 };
-        if pos.1 < 0 { pos.1 = height as isize };
+        if pos.0 >= width as isize { pos.0 = 0 };
+        if pos.0 < 0 { pos.0 = width as isize - 1 };
+        if pos.1 >= height as isize { pos.1 = 0 };
+        if pos.1 < 0 { pos.1 = height as isize - 1 };
 
         set_xy(pos.0, pos.1, colour);
         //println!("Set {:?}", pos);

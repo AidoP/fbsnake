@@ -14,7 +14,7 @@ Execute after build: `fbsnake <colour> <width> <height> <scale>`
 
 Where `colour` is the hex `RRGGBB` and `width`/`height` are the decimal canvas size in pixels. `scale` is the integer scaling for the whole canvas.
 
-`scale` * `width`/`height` must be smaller than or equal to the framebuffer size (probably your screen dimensions).
+`scale` * (`width` and `height`) must be smaller than or equal to the framebuffer size (probably your screen dimensions).
 
 # License
 
