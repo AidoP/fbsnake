@@ -1,7 +1,3 @@
-// kd.h IOCTL constants
-const GIO_CMAP: u64 = 0x4B70;
-const PIO_CMAP: u64 = 0x4B71;
-
 // fb IOCTL constants
 const FBIOGET_VSCREENINFO: u64 = 0x4600;
 
@@ -44,7 +40,7 @@ extern "C" {
     pub fn tcsetattr(__fd: i32, __optional_actions: i32, __termios_p: *const termios) -> i32;
     pub fn tcflush(__fd: i32, __queue_selector: i32) -> i32;
 
-    pub fn signal(__sig: i32, __handler: fn(i32)) -> fn(i32);
+    pub fn signal(__sig: i32, __handler: extern fn(i32)) -> extern fn(i32);
 }
 
 #[repr(C)]
@@ -135,7 +131,7 @@ fn main() {
     assert!(0 == unsafe { tcgetattr(0, &termios as *const termios) }, "Unable to get terminal info");
 
     // Save terminal state
-    unsafe { termios_prev = termios.clone() };
+    unsafe { TERMIOS_SAVE_STATE = termios.clone() };
 
     termios.c_lflag &= !(TC_ECHO | TC_ICANON);
     assert!(0 == unsafe { tcsetattr(0, TCSANOW, &termios as *const termios) }, "Unable to configure terminal");
@@ -160,31 +156,41 @@ fn main() {
     // Restore terminal state
     unsafe { signal(SIGINT, restore) };
 
-    execute(buffer, info.xres as usize, info.yres as usize);
+    // TODO: Potentialy unsafe? If SIGINT and exit occur at the exact same moment.
+    restore(
+        match execute(buffer, info.xres as usize, info.yres as usize) {
+            Ok(_) => 0,
+            Err(error) => { eprintln!("{}", error); 1 }
+        }
+    );
 }
 
 // Not really any way to get around this. Probably the least unsafe thing here
-static mut termios_prev: termios = termios::none();
+static mut TERMIOS_SAVE_STATE: termios = termios::none();
 
-fn restore(signal: i32) {
-    assert!(0 == unsafe { tcsetattr(0, TCSANOW, &termios_prev as *const termios) }, "Unable to restore terminal");
+extern fn restore(signal: i32) {
+    assert!(0 == unsafe { tcsetattr(0, TCSANOW, &TERMIOS_SAVE_STATE as *const termios) }, "Unable to restore terminal");
 
-    std::process::exit(0);
+    std::process::exit(if signal == 2 { 0 } else { signal });
 }
 
 // TODO: Remove the possibility of panicing here so terminal state can be restored
 #[cfg(target_os = "linux")]
-fn execute(buffer: &mut [u32], xres: usize, yres: usize) {
+fn execute(buffer: &mut [u32], xres: usize, yres: usize) -> Result<(), String> {
     let mut args = std::env::args();
     let name = args.next().unwrap_or_else(|| "fbsnake".to_owned());
-    let error = format!("Usage: '{} RRGGBB width height'", &name);
-    let colour = u32::from_str_radix(&args.next().expect(&error), 16).expect("Invalid colour: use form 'RRGGBB'");
-    let width = usize::from_str_radix(&args.next().expect(&error), 10).expect("Invalid width: must be a decimal integer");
-    let height = usize::from_str_radix(&args.next().expect(&error), 10).expect("Invalid height: must be a decimal integer");
-    let scale = usize::from_str_radix(&args.next().expect(&error), 10).expect("Invalid scale: must be a decimal integer");
+    let error = Err(format!("Usage: '{} RRGGBB width height'", &name));
+    let colour =    match   u32::from_str_radix(match &args.next() { Some(s) => s, _ => return error }, 16) {
+        Ok(colour) =>   colour, _ => return Err("Invalid colour: use form 'RRGGBB'".to_string()) };
+    let width =     match usize::from_str_radix(match &args.next() { Some(s) => s, _ => return error }, 10) {
+        Ok(width) =>    width, _ => return Err("Invalid width: must be a decimal integer".to_string()) };
+    let height =    match usize::from_str_radix(match &args.next() { Some(s) => s, _ => return error }, 10) {
+        Ok(height) =>   height, _ => return Err("Invalid height: must be a decimal integer".to_string()) };
+    let scale =     match usize::from_str_radix(match &args.next() { Some(s) => s, _ => return error }, 10) {
+        Ok(scale) =>    scale, _ => return Err("Invalid scale: must be a decimal integer".to_string()) };
 
-    if !(width * scale <= xres) { eprintln!("'width' * 'scale' cannot be bigger than framebuffer width"); return };
-    if !(height * scale <= yres) { eprintln!("'height' * 'scale' cannot be bigger than framebuffer height"); return };
+    if !(width * scale <= xres) { return  Err("'width' * 'scale' cannot be bigger than framebuffer width".to_string()) };
+    if !(height * scale <= yres) { return Err("'height' * 'scale' cannot be bigger than framebuffer height".to_string()) };
 
     #[derive(Debug, PartialEq, Copy, Clone)]
     enum Direction {
@@ -232,11 +238,14 @@ fn execute(buffer: &mut [u32], xres: usize, yres: usize) {
 
     let (tx, input) = std::sync::mpsc::channel::<[u8; 3]>();
     std::thread::spawn(move || {
-        loop {
+        'input: loop {
             let mut input = [0u8; 3];
             unsafe { tcflush(0, TCIOFLUSH) };
-            let index = std::io::stdin().read(&mut input).unwrap_or_else(|_| 0);
-            tx.send(input).unwrap();
+            std::io::stdin().read(&mut input).ok();
+            match tx.send(input) {
+                Ok(_) => (),
+                Err(_) => break 'input
+            };
 
             std::thread::sleep(std::time::Duration::from_millis(5));
         }
@@ -246,7 +255,7 @@ fn execute(buffer: &mut [u32], xres: usize, yres: usize) {
     loop {
         let input = input.try_recv().unwrap_or_else(|_| [0u8; 3]);
         
-        if input[0] == b'\x1B' && input[1] == b'\0' { break };
+        if input[0] == b'\x1B' && input[1] == b'\0' { break Ok(()) };
     
         if input.len() == 3 {
             dir = if !(input[0] == b'\x1B' && input[1] == b'[' ) { dir } else {
