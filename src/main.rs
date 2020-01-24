@@ -147,10 +147,11 @@ fn main() {
         std::slice::from_raw_parts_mut(buffer, len)
     };
 
+    // Change last; No panics should occur beyond this point
     termios.c_lflag &= !(TC_ECHO | TC_ICANON);
     assert!(0 == unsafe { tcsetattr(0, TCSANOW, &termios as *const termios) }, "Unable to configure terminal");
     
-    // Restore terminal state
+    // Catch SIGINT to prevent the application exiting without reenabling echo
     unsafe { signal(SIGINT, restore) };
 
     // TODO: Potentialy unsafe? If SIGINT and exit occur at the exact same moment.
@@ -171,7 +172,6 @@ extern fn restore(signal: i32) {
     std::process::exit(if signal == 2 { 0 } else { signal });
 }
 
-// TODO: Remove the possibility of panicing here so terminal state can be restored
 #[cfg(target_os = "linux")]
 fn execute(buffer: &mut [u32], xres: usize, yres: usize) -> Result<(), String> {
     let mut args = std::env::args();
@@ -248,6 +248,15 @@ fn execute(buffer: &mut [u32], xres: usize, yres: usize) -> Result<(), String> {
         }
     });
 
+    use std::collections::VecDeque;
+
+    const MAX_SNAKE_LENGTH: usize = 50;
+
+    // Snake tile vec
+    let mut snake = VecDeque::with_capacity(MAX_SNAKE_LENGTH + 1);
+    let snake_length = 10;
+
+
     // Game loop
     loop {
         let input = input.try_recv().unwrap_or_else(|_| [0u8; 3]);
@@ -277,6 +286,13 @@ fn execute(buffer: &mut [u32], xres: usize, yres: usize) -> Result<(), String> {
         if pos.1 < 0 { pos.1 = height as isize - 1 };
 
         set_xy(pos.0, pos.1, colour);
+        snake.push_front(pos);
+        if snake.len() > snake_length {
+            if let Some(old_pos) = snake.pop_back() {
+                set_xy(old_pos.0, old_pos.1, 0);
+            }
+        }
+    
 
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
