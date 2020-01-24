@@ -141,20 +141,21 @@ fn main() {
 
     let len = 4 * info.xres as usize * info.yres as usize;
 
+    // Make the framebuffer addressible by our program
     let buffer = unsafe {
         let buffer = mmap(0 as *const void, len, PROT_READ | PROT_WRITE, MAP_SHARED, fb, 0) as *mut u32;
         assert!(buffer as usize != MAP_FAILED as usize);
         std::slice::from_raw_parts_mut(buffer, len)
     };
 
-    // Change last; No panics should occur beyond this point
+    // Disable echo last; No panics should occur beyond this point
     termios.c_lflag &= !(TC_ECHO | TC_ICANON);
     assert!(0 == unsafe { tcsetattr(0, TCSANOW, &termios as *const termios) }, "Unable to configure terminal");
     
     // Catch SIGINT to prevent the application exiting without reenabling echo
     unsafe { signal(SIGINT, restore) };
 
-    // TODO: Potentialy unsafe? If SIGINT and exit occur at the exact same moment.
+    // Restore state; Safe as tcsetattr states that it doesn't modify the termios struct
     restore(
         match execute(buffer, info.xres as usize, info.yres as usize) {
             Ok(_) => 0,
@@ -163,11 +164,11 @@ fn main() {
     );
 }
 
-// Not really any way to get around this. Probably the least unsafe thing here
+// Not really any way to get around this. Safe as written exactly once during initialisation.
 static mut TERMIOS_SAVE_STATE: termios = termios::none();
 
 extern fn restore(signal: i32) {
-    assert!(0 == unsafe { tcsetattr(0, TCSANOW, &TERMIOS_SAVE_STATE as *const termios) }, "Unable to restore terminal");
+    assert!(0 == unsafe { tcsetattr(0, TCSANOW, &TERMIOS_SAVE_STATE as *const termios) }, "Unable to restore terminal; You should run 'reset'");
 
     std::process::exit(if signal == 2 { 0 } else { signal });
 }
@@ -293,20 +294,29 @@ fn execute(buffer: &mut [u32], xres: usize, yres: usize) -> Result<(), String> {
         set_xy(pos.0, pos.1, colour);
         if snake.contains(&pos) { println!("You lost. Better luck next time..."); return Err("\0".to_string()) };
 
-        if pos == pellet_pos {
-            snake_length += 1;
-            let rand_x = rand(width as u32 - 1, &mut seed) as _;
-            let rand_y = rand(height as u32 - 1, &mut seed) as _;
-            // TODO: BAD. May take a long time to complete when few tiles left on larger boards
-            while { pellet_pos = (rand_x, rand_y); snake.contains(&pellet_pos) } { if snake.len() == width * height { println!("You won!"); return Ok(()) } };
-            set_xy(pellet_pos.0, pellet_pos.1, !colour | 0x010101);
-        }
 
+        // Pellet captured by the player so add length
+        if pos == pellet_pos { snake_length += 1; };
+        if snake_length == width * height { println!("You won!"); return Ok(()) }
+
+        // Move snake 
         snake.push_front(pos);
         if snake.len() > snake_length {
             if let Some(old_pos) = snake.pop_back() {
                 set_xy(old_pos.0, old_pos.1, 0);
             }
+        }
+
+        // Pellet captured by the player so update its position
+        if pos == pellet_pos {
+            // TODO: BAD. May take a long time to complete when few tiles left on larger boards
+            while { // do-while-do loop
+                let rand_x = rand(width as u32 - 1, &mut seed) as _;
+                let rand_y = rand(height as u32 - 1, &mut seed) as _;
+                pellet_pos = (rand_x, rand_y);
+                snake.contains(&pellet_pos)
+            } { println!("Miss! {:?}", pellet_pos) };
+            set_xy(pellet_pos.0, pellet_pos.1, !colour | 0x010101);
         }
     
 
