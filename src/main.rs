@@ -218,8 +218,13 @@ fn execute(buffer: &mut [u32], xres: usize, yres: usize) -> Result<(), String> {
     use Direction::*;
 
     let mut pos = (0, 0);
-    let mut pellet_pos = ();
-    let mut dir = Right; 
+    let mut pellet_pos = (width as isize / 2, height as isize / 2);
+    let mut dir = Right;
+
+    // Snake tile vec
+    let mut snake = VecDeque::with_capacity(MAX_SNAKE_LENGTH + 1);
+    let mut snake_length = 10;
+    let mut seed = 0x3A7B9F02;
 
     let mut set_xy = |x: isize, y: isize, colour: u32| {
         for x_scaled in 0..scale {
@@ -231,6 +236,8 @@ fn execute(buffer: &mut [u32], xres: usize, yres: usize) -> Result<(), String> {
 
     // Clear play area
     for x in 0..width { for y in 0..height { set_xy(x as isize, y as isize, 0) } }
+    // Draw pellet. Invert colour and make sure it isn't going to be the same as the background
+    set_xy(pellet_pos.0, pellet_pos.1, !colour | 0x010101);
 
     use std::io::Read;
 
@@ -253,15 +260,10 @@ fn execute(buffer: &mut [u32], xres: usize, yres: usize) -> Result<(), String> {
 
     const MAX_SNAKE_LENGTH: usize = 50;
 
-    // Snake tile vec
-    let mut snake = VecDeque::with_capacity(MAX_SNAKE_LENGTH + 1);
-    let snake_length = 10;
-    let mut seed = 0x3A7B9F02;
-
     // Game loop
     loop {
         let input = input.try_recv().unwrap_or_else(|_| [0u8; 3]);
-        seed ^= input[0] as usize | (input[0] as usize) << 1 | (input[0] as usize) << 2 | (input[0] as usize) << 3; 
+        seed ^= input[0] as u32 | (input[0] as u32) << 1 | (input[0] as u32) << 2 | (input[0] as u32) << 3; 
         hash(&mut seed);
        
         if input[0] == b'\x1B' && input[1] == b'\0' { break Ok(()) };
@@ -289,6 +291,17 @@ fn execute(buffer: &mut [u32], xres: usize, yres: usize) -> Result<(), String> {
         if pos.1 < 0 { pos.1 = height as isize - 1 };
 
         set_xy(pos.0, pos.1, colour);
+        if snake.contains(&pos) { println!("You lost. Better luck next time..."); return Err("\0".to_string()) };
+
+        if pos == pellet_pos {
+            snake_length += 1;
+            let rand_x = rand(width as u32 - 1, &mut seed) as _;
+            let rand_y = rand(height as u32 - 1, &mut seed) as _;
+            // TODO: BAD. May take a long time to complete when few tiles left on larger boards
+            while { pellet_pos = (rand_x, rand_y); snake.contains(&pellet_pos) } { if snake.len() == width * height { println!("You won!"); return Ok(()) } };
+            set_xy(pellet_pos.0, pellet_pos.1, !colour | 0x010101);
+        }
+
         snake.push_front(pos);
         if snake.len() > snake_length {
             if let Some(old_pos) = snake.pop_back() {
@@ -302,13 +315,21 @@ fn execute(buffer: &mut [u32], xres: usize, yres: usize) -> Result<(), String> {
 }
 
 // Fast hash from http://burtleburtle.net/bob/hash/integer.html
-fn hash(inp: &mut usize) {
+fn hash(inp: &mut u32) {
     use std::num::Wrapping;
     let mut x = Wrapping((*inp ^ 61) ^ (*inp >> 16));
-    x = x + (x << 3);
-    x = x ^ (x >> 4);
-    x = x * Wrapping(0x27d4eb2d);
-    x = x ^ (x >> 15);
-    x = x & Wrapping(0xFFFFFFFF);
+    x += x << 3;
+    x ^= x >> 4;
+    x *= Wrapping(0x27d4eb2d);
+    x ^= x >> 15;
+    x &= Wrapping(0xFFFFFFFF);
     *inp = x.0;
+}
+
+fn rand(max: u32, seed: &mut u32) -> u32 {
+    // Ensure consecutive uses result in different values
+    *seed ^= max;
+    hash(seed);
+
+    *seed & max
 }
