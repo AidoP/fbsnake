@@ -133,9 +133,6 @@ fn main() {
     // Save terminal state
     unsafe { TERMIOS_SAVE_STATE = termios.clone() };
 
-    termios.c_lflag &= !(TC_ECHO | TC_ICANON);
-    assert!(0 == unsafe { tcsetattr(0, TCSANOW, &termios as *const termios) }, "Unable to configure terminal");
-
     let fb = unsafe { open("/dev/fb0\0".as_ptr(), O_RDWR) };
     assert!(fb > 0, "Unable to open framebuffer; Are you in the 'video' group?");
 
