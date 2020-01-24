@@ -218,6 +218,7 @@ fn execute(buffer: &mut [u32], xres: usize, yres: usize) -> Result<(), String> {
     use Direction::*;
 
     let mut pos = (0, 0);
+    let mut pellet_pos = ();
     let mut dir = Right; 
 
     let mut set_xy = |x: isize, y: isize, colour: u32| {
@@ -255,12 +256,14 @@ fn execute(buffer: &mut [u32], xres: usize, yres: usize) -> Result<(), String> {
     // Snake tile vec
     let mut snake = VecDeque::with_capacity(MAX_SNAKE_LENGTH + 1);
     let snake_length = 10;
-
+    let mut seed = 0x3A7B9F02;
 
     // Game loop
     loop {
         let input = input.try_recv().unwrap_or_else(|_| [0u8; 3]);
-        
+        seed ^= input[0] as usize | (input[0] as usize) << 1 | (input[0] as usize) << 2 | (input[0] as usize) << 3; 
+        hash(&mut seed);
+       
         if input[0] == b'\x1B' && input[1] == b'\0' { break Ok(()) };
     
         if input.len() == 3 {
@@ -296,4 +299,16 @@ fn execute(buffer: &mut [u32], xres: usize, yres: usize) -> Result<(), String> {
 
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
+}
+
+// Fast hash from http://burtleburtle.net/bob/hash/integer.html
+fn hash(inp: &mut usize) {
+    use std::num::Wrapping;
+    let mut x = Wrapping((*inp ^ 61) ^ (*inp >> 16));
+    x = x + (x << 3);
+    x = x ^ (x >> 4);
+    x = x * Wrapping(0x27d4eb2d);
+    x = x ^ (x >> 15);
+    x = x & Wrapping(0xFFFFFFFF);
+    *inp = x.0;
 }
