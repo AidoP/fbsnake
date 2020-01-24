@@ -315,7 +315,7 @@ fn execute(buffer: &mut [u32], xres: usize, yres: usize) -> Result<(), String> {
                 let rand_y = rand(height as u32 - 1, &mut seed) as _;
                 pellet_pos = (rand_x, rand_y);
                 snake.contains(&pellet_pos)
-            } { println!("Miss! {:?}", pellet_pos) };
+            } { };
             set_xy(pellet_pos.0, pellet_pos.1, !colour | 0x010101);
         }
     
