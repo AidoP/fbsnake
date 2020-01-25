@@ -225,6 +225,7 @@ fn execute(buffer: &mut [u32], xres: usize, yres: usize) -> Result<(), String> {
     // Snake tile vec
     let mut snake = VecDeque::with_capacity(MAX_SNAKE_LENGTH + 1);
     let mut snake_length = 10;
+    let mut sleep_time = 100;
     let mut seed = 0x3A7B9F02;
 
     let mut set_xy = |x: isize, y: isize, colour: u32| {
@@ -235,7 +236,7 @@ fn execute(buffer: &mut [u32], xres: usize, yres: usize) -> Result<(), String> {
         }
     };
 
-    // Clear play area
+    // Clear play area and fill not_snake
     for x in 0..width { for y in 0..height { set_xy(x as isize, y as isize, 0) } }
     // Draw pellet. Invert colour and make sure it isn't going to be the same as the background
     set_xy(pellet_pos.0, pellet_pos.1, !colour | 0x010101);
@@ -260,11 +261,15 @@ fn execute(buffer: &mut [u32], xres: usize, yres: usize) -> Result<(), String> {
     use std::collections::VecDeque;
 
     const MAX_SNAKE_LENGTH: usize = 50;
+    const SLEEP_DECREMENT: u64 = 5;
 
     // Game loop
     loop {
         let input = input.try_recv().unwrap_or_else(|_| [0u8; 3]);
-        seed ^= input[0] as u32 | (input[0] as u32) << 1 | (input[0] as u32) << 2 | (input[0] as u32) << 3; 
+        
+        let mut entropy = input[0] as u32 | !(input[0] as u32) << 1 | (input[0] as u32) << 2 | !(input[0] as u32) << 3;
+        hash(&mut entropy);
+        seed ^= entropy; 
         hash(&mut seed);
        
         if input[0] == b'\x1B' && input[1] == b'\0' { break Ok(()) };
@@ -296,7 +301,7 @@ fn execute(buffer: &mut [u32], xres: usize, yres: usize) -> Result<(), String> {
 
 
         // Pellet captured by the player so add length
-        if pos == pellet_pos { snake_length += 1; };
+        if pos == pellet_pos { snake_length += 1; if sleep_time > SLEEP_DECREMENT { sleep_time -= SLEEP_DECREMENT } };
         if snake_length == width * height { println!("You won!"); return Ok(()) }
 
         // Move snake 
@@ -309,18 +314,21 @@ fn execute(buffer: &mut [u32], xres: usize, yres: usize) -> Result<(), String> {
 
         // Pellet captured by the player so update its position
         if pos == pellet_pos {
-            // TODO: BAD. May take a long time to complete when few tiles left on larger boards
-            while { // do-while-do loop
-                let rand_x = rand(width as u32 - 1, &mut seed) as _;
-                let rand_y = rand(height as u32 - 1, &mut seed) as _;
-                pellet_pos = (rand_x, rand_y);
+            // Get a new position for the snake
+            let mut new_index = rand((width * height - snake_length) as u32, &mut seed) as isize;
+            // Probably a faster method but this should suffice. Would like to remove the modulo
+            // Do:      set pellet_pos
+            // While:   pellet_pos is inside the snake
+            // Do:      increment pellet pos
+            while {
+                pellet_pos = (new_index % width as isize, new_index / width as isize);
                 snake.contains(&pellet_pos)
-            } { };
+            } { if new_index as usize + 1 >= width * height { new_index = 0 } else { new_index += 1 } };
             set_xy(pellet_pos.0, pellet_pos.1, !colour | 0x010101);
         }
     
 
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::thread::sleep(std::time::Duration::from_millis(sleep_time));
     }
 }
 
@@ -336,9 +344,9 @@ fn hash(inp: &mut u32) {
     *inp = x.0;
 }
 
+/// Low entropy; don't use often
 fn rand(max: u32, seed: &mut u32) -> u32 {
     // Ensure consecutive uses result in different values
-    *seed ^= max;
     hash(seed);
 
     *seed & max
