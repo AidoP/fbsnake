@@ -2,25 +2,19 @@
 const FBIOGET_VSCREENINFO: u64 = 0x4600;
 
 // mmap memory protection
-const PROT_NONE:    i32 = 0x0;
 const PROT_READ:    i32 = 0x1;
 const PROT_WRITE:   i32 = 0x2;
-const PROT_EXEC:    i32 = 0x4;
 
 const MAP_FAILED:   i32 = -1;
 const MAP_SHARED:   i32 = 0x1;
 
 // fcntl.h modes
-const O_RDONLY: i32 = 0;
-const O_WRONLY: i32 = 1;
 const O_RDWR:   i32 = 2;
 
 // termios constants
 const TC_ECHO:  u32 = 0o0010;
 const TC_ICANON:u32 = 0o0002;
 const TCSANOW:  i32 = 0;
-const TCIFLUSH: i32 = 0;
-const TCOFLUSH: i32 = 1;
 const TCIOFLUSH:i32 = 2;
 
 // SIGNALS
@@ -218,15 +212,16 @@ fn execute(buffer: &mut [u32], xres: usize, yres: usize) -> Result<(), String> {
     }
     use Direction::*;
 
-    let mut pos = (0, 0);
-    let mut pellet_pos = (width as isize / 2, height as isize / 2);
+    let mut seed = 0x3A7B9F02;
+
+    let mut pos = (width as isize / 2, height as isize / 2);
+    let mut pellet_pos = (rand(width as u32, &mut seed) as isize, rand(height as u32, &mut seed) as isize);
     let mut dir = Right;
 
     // Snake tile vec
     let mut snake = VecDeque::with_capacity(MAX_SNAKE_LENGTH + 1);
     let mut snake_length = 10;
     let mut sleep_time = 100;
-    let mut seed = 0x3A7B9F02;
 
     let mut set_xy = |x: isize, y: isize, colour: u32| {
         for x_scaled in 0..scale {
@@ -236,10 +231,10 @@ fn execute(buffer: &mut [u32], xres: usize, yres: usize) -> Result<(), String> {
         }
     };
 
-    // Clear play area and fill not_snake
+    // Clear play area with the inverse of the chosen colour
     for x in 0..width { for y in 0..height { set_xy(x as isize, y as isize, 0) } }
-    // Draw pellet. Invert colour and make sure it isn't going to be the same as the background
-    set_xy(pellet_pos.0, pellet_pos.1, !colour | 0x010101);
+    // Draw pellet
+    set_xy(pellet_pos.0, pellet_pos.1, !colour | 0x3F3F3F);
 
     use std::io::Read;
 
@@ -323,8 +318,13 @@ fn execute(buffer: &mut [u32], xres: usize, yres: usize) -> Result<(), String> {
             while {
                 pellet_pos = (new_index % width as isize, new_index / width as isize);
                 snake.contains(&pellet_pos)
-            } { if new_index as usize + 1 >= width * height { new_index = 0 } else { new_index += 1 } };
-            set_xy(pellet_pos.0, pellet_pos.1, !colour | 0x010101);
+            } {
+                if new_index as usize + 1 >= width * height {
+                    new_index = 0
+                } else { new_index += 1 }
+            };
+            // Draw pellet as !colour and make sure it isn't too dark
+            set_xy(pellet_pos.0, pellet_pos.1, !colour | 0x3F3F3F);
         }
     
 
