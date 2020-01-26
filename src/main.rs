@@ -1,3 +1,30 @@
+/*
+MIT License
+
+Copyright (c) 2020 Aidan Prangnell
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+*/
+
+#[cfg(not(target_os = "linux"))]
+compile_error!("fbsnake requires Linux as it utilises Linux-only features.");
+
 // fb IOCTL constants
 const FBIOGET_VSCREENINFO: u64 = 0x4600;
 
@@ -115,10 +142,6 @@ impl termios {
     }
 }
 
-#[cfg(not(target_os = "linux"))]
-compile_error!("fbsnake requires Linux as it utilises Linux-only features.");
-
-#[cfg(target_os = "linux")]
 fn main() { 
     // Disable terminal output
     let mut termios: termios = unsafe { std::mem::zeroed() };
@@ -138,7 +161,7 @@ fn main() {
     // Make the framebuffer addressible by our program
     let buffer = unsafe {
         let buffer = mmap(0 as *const void, len, PROT_READ | PROT_WRITE, MAP_SHARED, fb, 0) as *mut u32;
-        assert!(buffer as usize != MAP_FAILED as usize);
+        assert!(buffer as usize != MAP_FAILED as usize, "Unable to mmap framebuffer");
         std::slice::from_raw_parts_mut(buffer, len)
     };
 
@@ -167,21 +190,43 @@ extern fn restore(signal: i32) {
     std::process::exit(if signal == 2 { 0 } else { signal });
 }
 
-#[cfg(target_os = "linux")]
 fn execute(buffer: &mut [u32], xres: usize, yres: usize) -> Result<(), String> {
     let mut args = std::env::args();
     let name = args.next().unwrap_or_else(|| "fbsnake".to_owned());
-    let error = Err(format!("Usage: '{} RRGGBB width height'", &name));
-    let colour =    match   u32::from_str_radix(match &args.next() { Some(s) => s, _ => return error }, 16) {
-        Ok(colour) =>   colour, _ => return Err("Invalid colour: use form 'RRGGBB'".to_string()) };
-    let width =     match usize::from_str_radix(match &args.next() { Some(s) => s, _ => return error }, 10) {
-        Ok(width) =>    width, _ => return Err("Invalid width: must be a decimal integer".to_string()) };
-    let height =    match usize::from_str_radix(match &args.next() { Some(s) => s, _ => return error }, 10) {
-        Ok(height) =>   height, _ => return Err("Invalid height: must be a decimal integer".to_string()) };
-    let scale =     match usize::from_str_radix(match &args.next() { Some(s) => s, _ => return error }, 10) {
-        Ok(scale) =>    scale, _ => return Err("Invalid scale: must be a decimal integer".to_string()) };
 
-    if !(width * scale <= xres) { return  Err("'width' * 'scale' cannot be bigger than framebuffer width".to_string()) };
+    let mut colour = 0x00FFFF;
+    let mut width = 30;
+    let mut height = 30;
+    let mut scale = 5;
+    let mut speed = 75;
+
+    macro_rules! arg {
+        ($name:ident, $type:ty, $base:expr, $error:expr) => {
+            $name = if let Ok($name) = <$type>::from_str_radix(
+                if let Some(s) = &args.next() { s }
+                else { return Err(format!("Usage: '{} -c <colour> -w <width> -h <height> -s <scale> -r <rate>'", &name)) },
+                $base
+            ) {
+                $name
+            } else {
+                return Err($error.to_string())
+            }
+        };
+    }
+
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "-c" | "--colour" => arg!(colour, u32,   16, "Colour must be in the form 'RRGGBB' where R/G/B is a hex digit"),
+            "-w" | "--width"  => arg!(width,  usize, 10, "Width must be an integer"),
+            "-h" | "--height" => arg!(height, usize, 10, "Height must be an integer"),
+            "-s" | "--scale"  => arg!(scale,  usize, 10, "Scale must be an integer"),
+            "-r" | "--speed"
+                 | "--rate"   => arg!(speed,  u64,   10, "Speed must be an integer representing the time it takes for the snake to move"),
+            _ => return Err("Unknown argument passed".to_string())
+        }
+    }
+
+    if !(width * scale  <= xres) { return Err("'width' * 'scale' cannot be bigger than framebuffer width".to_string()) };
     if !(height * scale <= yres) { return Err("'height' * 'scale' cannot be bigger than framebuffer height".to_string()) };
 
     #[derive(Debug, PartialEq, Copy, Clone)]
@@ -194,10 +239,10 @@ fn execute(buffer: &mut [u32], xres: usize, yres: usize) -> Result<(), String> {
     impl Direction {
         fn step(&self, pos: &mut (isize, isize)) {
             match self {
-                Left => pos.0 -= 1,
+                Left  => pos.0 -= 1,
                 Right => pos.0 += 1,
-                Up => pos.1 -= 1,
-                Down => pos.1 += 1
+                Up    => pos.1 -= 1,
+                Down  => pos.1 += 1
             };
         }
 
@@ -212,16 +257,16 @@ fn execute(buffer: &mut [u32], xres: usize, yres: usize) -> Result<(), String> {
     }
     use Direction::*;
 
-    let mut seed = 0x3A7B9F02;
+    let mut seed = 0xDEADBEEF;
 
     let mut pos = (width as isize / 2, height as isize / 2);
     let mut pellet_pos = (rand(width as u32, &mut seed) as isize, rand(height as u32, &mut seed) as isize);
     let mut dir = Right;
 
     // Snake tile vec
+    const MAX_SNAKE_LENGTH: usize = 50;
     let mut snake = VecDeque::with_capacity(MAX_SNAKE_LENGTH + 1);
     let mut snake_length = 10;
-    let mut sleep_time = 100;
 
     let mut set_xy = |x: isize, y: isize, colour: u32| {
         for x_scaled in 0..scale {
@@ -254,9 +299,6 @@ fn execute(buffer: &mut [u32], xres: usize, yres: usize) -> Result<(), String> {
     });
 
     use std::collections::VecDeque;
-
-    const MAX_SNAKE_LENGTH: usize = 50;
-    const SLEEP_DECREMENT: u64 = 5;
 
     // Game loop
     loop {
@@ -296,7 +338,7 @@ fn execute(buffer: &mut [u32], xres: usize, yres: usize) -> Result<(), String> {
 
 
         // Pellet captured by the player so add length
-        if pos == pellet_pos { snake_length += 1; if sleep_time > SLEEP_DECREMENT { sleep_time -= SLEEP_DECREMENT } };
+        if pos == pellet_pos { snake_length += 1 };
         if snake_length == width * height { println!("You won!"); return Ok(()) }
 
         // Move snake 
@@ -326,9 +368,8 @@ fn execute(buffer: &mut [u32], xres: usize, yres: usize) -> Result<(), String> {
             // Draw pellet as !colour and make sure it isn't too dark
             set_xy(pellet_pos.0, pellet_pos.1, !colour | 0x3F3F3F);
         }
-    
 
-        std::thread::sleep(std::time::Duration::from_millis(sleep_time));
+        std::thread::sleep(std::time::Duration::from_millis(speed));
     }
 }
 
