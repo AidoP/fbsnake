@@ -264,7 +264,7 @@ fn execute(buffer: &mut [u32], xres: usize, yres: usize) -> Result<(), String> {
     let mut seed = 0xDEADBEEF;
 
     let mut pos = (width as isize / 2, height as isize / 2);
-    let mut pellet_pos = (rand(width as u32, &mut seed) as isize, rand(height as u32, &mut seed) as isize);
+    let mut pellet_pos = (rand(width as u32 - 1, &mut seed) as isize, rand(height as u32 - 1, &mut seed) as isize);
     let mut dir = Right;
 
     // Snake tile vec
