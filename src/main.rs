@@ -199,12 +199,15 @@ fn execute(buffer: &mut [u32], xres: usize, yres: usize) -> Result<(), String> {
     let mut height = 30;
     let mut scale = 5;
     let mut speed = 75;
+    let mut snake_length = 10;
+
+    let mut score = 0;
 
     macro_rules! arg {
         ($name:ident, $type:ty, $base:expr, $error:expr) => {
             $name = if let Ok($name) = <$type>::from_str_radix(
                 if let Some(s) = &args.next() { s }
-                else { return Err(format!("Usage: '{} -c <colour> -w <width> -h <height> -s <scale> -r <rate>'", &name)) },
+                else { return Err(format!("Usage: '{} -c <colour> -w <width> -h <height> -s <scale> -r <rate> -l <start length>'", &name)) },
                 $base
             ) {
                 $name
@@ -222,6 +225,7 @@ fn execute(buffer: &mut [u32], xres: usize, yres: usize) -> Result<(), String> {
             "-s" | "--scale"  => arg!(scale,  usize, 10, "Scale must be an integer"),
             "-r" | "--speed"
                  | "--rate"   => arg!(speed,  u64,   10, "Speed must be an integer representing the time it takes for the snake to move"),
+            "-l" | "--length" => arg!(snake_length,  usize, 10, "Starting length must be an integer"),
             _ => return Err("Unknown argument passed".to_string())
         }
     }
@@ -266,7 +270,6 @@ fn execute(buffer: &mut [u32], xres: usize, yres: usize) -> Result<(), String> {
     // Snake tile vec
     const MAX_SNAKE_LENGTH: usize = 50;
     let mut snake = VecDeque::with_capacity(MAX_SNAKE_LENGTH + 1);
-    let mut snake_length = 10;
 
     let mut set_xy = |x: isize, y: isize, colour: u32| {
         for x_scaled in 0..scale {
@@ -334,12 +337,12 @@ fn execute(buffer: &mut [u32], xres: usize, yres: usize) -> Result<(), String> {
         if pos.1 < 0 { pos.1 = height as isize - 1 };
 
         set_xy(pos.0, pos.1, colour);
-        if snake.contains(&pos) { println!("You lost. Better luck next time..."); return Err("\0".to_string()) };
+        if snake.contains(&pos) { println!("You lost. Better luck next time...\nYour score was {}", score); return Err("\0".to_string()) };
 
 
         // Pellet captured by the player so add length
-        if pos == pellet_pos { snake_length += 1 };
-        if snake_length == width * height { println!("You won!"); return Ok(()) }
+        if pos == pellet_pos { snake_length += 1; score += 1 };
+        if snake_length == width * height { println!("You won!\nYour score was {}", score); return Ok(()) }
 
         // Move snake 
         snake.push_front(pos);
