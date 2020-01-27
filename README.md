@@ -40,7 +40,7 @@ Note: `--scale` * (`--width` and `--height`) must be smaller than or equal to th
 
 ## Controls
 
-Move with the arrow keys. Exit with `escape` (or SIGINT, ie `^C`). Pause with `p`
+Move with the arrow keys. Exit with `escape` (or SIGINT, ie `^C`). Pause with `p`. Redraw the screen with `r` while paused, useful if you switch tty's.
 
 # License
 

@@ -324,7 +324,7 @@ fn execute(buffer: &mut [u32], xres: usize, yres: usize) -> Result<(), String> {
     let mut dir = Right;
 
     // Snake tile vec.
-    let mut snake = VecDeque::new();
+    let mut snake = VecDeque::<(isize, isize)>::new();
 
     let mut set_xy = |x: isize, y: isize, colour: u32| {
         for x_scaled in 0..scale {
@@ -391,6 +391,19 @@ fn execute(buffer: &mut [u32], xres: usize, yres: usize) -> Result<(), String> {
                 while match input_rx.try_recv() {
                     Ok([0, 0, 0])           => true,
                     Ok([b'\x1B', b'\0', _]) => break 'game Ok(()),
+                    Ok([b'r', b'\0', _])    => {
+                        // Clear play area with the inverse of the chosen colour
+                        for x in 0..width {
+                            for y in 0..height {
+                                set_xy(x as isize, y as isize, 0)
+                            }
+                        }
+                        // Draw snake
+                        for pos in &snake { set_xy(pos.0, pos.1, colour) }
+                        set_xy(pellet_pos.0, pellet_pos.1, !colour | 0x3F_3F_3F);
+
+                        true
+                    },
                     Ok(_)                   => break 'pause,
                     Err(Empty)              => true,
                     Err(Disconnected)       => return Err("Input thread exited prematurely".to_string())
