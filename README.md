@@ -38,6 +38,10 @@ Note: `--scale` * (`--width` and `--height`) must be smaller than or equal to th
 
 ###### Pro-tip: Losing the game will exit with non-zero status while winning will exit with 0
 
+## Controls
+
+Move with the arrow keys. Exit with `escape` (or SIGINT, ie `^C`). Pause with `p`
+
 # License
 
 MIT License

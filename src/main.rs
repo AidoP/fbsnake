@@ -347,7 +347,7 @@ fn execute(buffer: &mut [u32], xres: usize, yres: usize) -> Result<(), String> {
 
     use std::io::Read;
 
-    let (tx, input) = std::sync::mpsc::channel::<[u8; 3]>();
+    let (tx, input_rx) = std::sync::mpsc::channel::<[u8; 3]>();
     std::thread::spawn(move || 'input: loop {
         let mut input = [0u8; 3];
         unsafe { tcflush(0, TCIOFLUSH) };
@@ -361,13 +361,14 @@ fn execute(buffer: &mut [u32], xres: usize, yres: usize) -> Result<(), String> {
     });
 
     use std::collections::VecDeque;
+    use std::sync::mpsc::TryRecvError::{ Disconnected, Empty };
 
     // Game loop
-    loop {
-        let input = match input.try_recv() {
+    'game: loop {
+        let input = match input_rx.try_recv() {
             Ok(input) => input,
-            Err(std::sync::mpsc::TryRecvError::Empty) => [0; 3],
-            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+            Err(Empty) => [0; 3],
+            Err(Disconnected) => {
                 return Err("Input thread exited prematurely".to_string())
             }
         };
@@ -382,6 +383,19 @@ fn execute(buffer: &mut [u32], xres: usize, yres: usize) -> Result<(), String> {
 
         if input[0] == b'\x1B' && input[1] == b'\0' {
             break Ok(());
+        };
+
+        // Pause the game
+        if input[0] == b'p' && input[1] == b'\0' {
+            'pause: loop {
+                while match input_rx.try_recv() {
+                    Ok([0, 0, 0])           => true,
+                    Ok([b'\x1B', b'\0', _]) => break 'game Ok(()),
+                    Ok(_)                   => break 'pause,
+                    Err(Empty)              => true,
+                    Err(Disconnected)       => return Err("Input thread exited prematurely".to_string())
+                 } {};
+            }
         };
 
         if input.len() == 3 {
